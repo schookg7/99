@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Minecraft Clone</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #info {
+      position: absolute;
+      top: 10px; left: 10px;
+      color: white;
+      font-family: sans-serif;
+      background: rgba(0,0,0,0.4);
+      padding: 5px 10px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+<div id="info">ЛКМ: зламати блок | ПКМ: поставити блок</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/FlyControls.js"></script>
+
+<script>
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const controls = new THREE.FlyControls(camera, renderer.domElement);
+  controls.movementSpeed = 10;
+  controls.rollSpeed = Math.PI / 24;
+  controls.autoForward = false;
+  controls.dragToLook = true;
+
+  // Освітлення
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+  scene.add(light);
+
+  // Матеріали
+  const blockMaterial = new THREE.MeshLambertMaterial({ color: 0x55cc55 });
+
+  const world = new Map();
+
+  function blockKey(x, y, z) {
+    return `${x},${y},${z}`;
+  }
+
+  function createBlock(x, y, z) {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.Mesh(geometry, blockMaterial);
+    mesh.position.set(x, y, z);
+    scene.add(mesh);
+    world.set(blockKey(x, y, z), mesh);
+  }
+
+  function removeBlock(x, y, z) {
+    const key = blockKey(x, y, z);
+    const mesh = world.get(key);
+    if (mesh) {
+      scene.remove(mesh);
+      world.delete(key);
+    }
+  }
+
+  // Створення плоского світу 20x20
+  for (let x = -10; x <= 10; x++) {
+    for (let z = -10; z <= 10; z++) {
+      createBlock(x, 0, z);
+    }
+  }
+
+  // Позиція камери
+  camera.position.set(0, 5, 10);
+
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  window.addEventListener('mousedown', (event) => {
+    // Центр екрану як миша
+    mouse.set(0, 0);
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects([...world.values()]);
+    if (intersects.length > 0) {
+      const intersect = intersects[0];
+      const pos = intersect.object.position;
+      if (event.button === 0) {
+        // ЛКМ — зламати блок
+        removeBlock(pos.x, pos.y, pos.z);
+      } else if (event.button === 2) {
+        // ПКМ — поставити блок поруч
+        const normal = intersect.face.normal;
+        const newX = pos.x + normal.x;
+        const newY = pos.y + normal.y;
+        const newZ = pos.z + normal.z;
+        createBlock(newX, newY, newZ);
+      }
+    }
+  });
+
+  // Вимкнути контекстне меню
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update(0.01);
+    renderer.render(scene, camera);
+  }
+
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+</script>
+</body>
+</html>
