@@ -1,185 +1,239 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-  <meta charset="UTF-8" />
-  <title>Проста Geometry Dash</title>
-  <style>
-    body, html {
-      margin: 0; padding: 0; overflow: hidden; background: #222;
-      user-select: none;
-      -webkit-user-select:none;
-    }
-    canvas {
-      display: block; margin: auto; background: #333;
-      touch-action: manipulation;
-    }
-  </style>
+<meta charset="UTF-8" />
+<title>Geometry Dash Покращена Версія</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    background: #222;
+    user-select: none;
+    -webkit-user-select:none;
+  }
+  canvas {
+    display: block; margin: auto;
+    background: #111;
+    cursor: pointer;
+  }
+</style>
 </head>
 <body>
+
 <canvas id="game" width="800" height="400"></canvas>
 
 <script>
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
 
-  const WIDTH = canvas.width;
-  const HEIGHT = canvas.height;
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
 
-  // Гравець
-  const player = {
-    x: 50,
-    y: HEIGHT - 60,
-    width: 40,
-    height: 40,
-    vy: 0,
-    jumpPower: -12,
-    gravity: 0.6,
-    grounded: false,
-    color: '#4caf50'
-  };
+// --- Гравець ---
+const player = {
+  x: 100,
+  y: HEIGHT - 60,
+  width: 40,
+  height: 40,
+  vy: 0,
+  gravity: 0.8,
+  jumpPower: -15,
+  grounded: false,
+  baseColor: '#00ffff',
+  colorPulse: 0,
+  colorPulseDir: 1,
+  isJumping: false
+};
 
-  // Рівень (платформи)
-  // Масив блоків {x, y, width, height}
-  // Тут є підлога і кілька перешкод
-  const platforms = [
-    {x: 0, y: HEIGHT - 20, width: WIDTH*10, height: 20, color: '#888'}, // підлога
-    {x: 400, y: HEIGHT - 70, width: 30, height: 50, color: '#e91e63'}, // перешкода
-    {x: 600, y: HEIGHT - 90, width: 30, height: 70, color: '#e91e63'},
-    {x: 850, y: HEIGHT - 60, width: 30, height: 40, color: '#e91e63'},
-    {x: 1100, y: HEIGHT - 100, width: 30, height: 80, color: '#e91e63'}
-  ];
+// --- Рівні (перешкоди) ---
+const levels = [
+  // Рівень 1
+  [
+    {x: 500, y: HEIGHT - 40, width: 40, height: 40},
+    {x: 800, y: HEIGHT - 80, width: 40, height: 80},
+    {x: 1100, y: HEIGHT - 40, width: 40, height: 40}
+  ],
+  // Рівень 2
+  [
+    {x: 400, y: HEIGHT - 60, width: 30, height: 60},
+    {x: 650, y: HEIGHT - 90, width: 50, height: 90},
+    {x: 950, y: HEIGHT - 40, width: 40, height: 40},
+    {x: 1200, y: HEIGHT - 70, width: 40, height: 70}
+  ],
+  // Рівень 3
+  [
+    {x: 300, y: HEIGHT - 80, width: 40, height: 80},
+    {x: 600, y: HEIGHT - 40, width: 40, height: 40},
+    {x: 850, y: HEIGHT - 60, width: 50, height: 60},
+    {x: 1100, y: HEIGHT - 100, width: 30, height: 100},
+    {x: 1400, y: HEIGHT - 40, width: 40, height: 40}
+  ]
+];
 
-  let scrollX = 0;  // Скільки прокручено вправо
-  const scrollSpeed = 4; // Швидкість руху вправо
+let currentLevelIndex = 0;
+let obstacles = levels[currentLevelIndex];
 
-  let score = 0;
-  let gameOver = false;
+let scrollX = 0;
+const scrollSpeed = 6;
 
-  function rectsCollide(r1, r2) {
-    return !(r2.x > r1.x + r1.width || 
-             r2.x + r2.width < r1.x || 
-             r2.y > r1.y + r1.height ||
-             r2.y + r2.height < r1.y);
+let score = 0;
+let gameOver = false;
+
+// --- Музика ---
+const audio = new Audio('https://cdn.pixabay.com/download/audio/2021/08/04/audio_22c3f5e5ec.mp3?filename=8-bit-platformer-ambient-6151.mp3');
+audio.loop = true;
+audio.volume = 0.15;
+
+function playAudio() {
+  if(audio.paused) {
+    audio.play().catch(e => {
+      // Якщо автозапуск заблоковано браузером — чекаємо кліку користувача
+    });
   }
+}
 
-  // Обробка стрибка (тикання)
-  function jump() {
-    if(player.grounded && !gameOver) {
-      player.vy = player.jumpPower;
-      player.grounded = false;
-    }
+// Функція для пульсації кольору під час стрибка
+function updatePlayerColorPulse() {
+  if(player.isJumping) {
+    player.colorPulse += 0.05 * player.colorPulseDir;
+    if(player.colorPulse > 1 || player.colorPulse < 0) player.colorPulseDir *= -1;
+  } else {
+    player.colorPulse = 0;
   }
+}
 
-  // Для мобільних і ПК
-  canvas.addEventListener('mousedown', jump);
-  canvas.addEventListener('touchstart', e => {
-    e.preventDefault();
-    jump();
-  }, {passive:false});
+function getPlayerColor() {
+  // Пульсація від синього до блакитного
+  let c = Math.floor(255 * (1 - player.colorPulse));
+  return `rgb(0, ${c}, 255)`;
+}
 
-  function update() {
-    if(gameOver) return;
+// --- Фізика та логіка ---
+function rectCollision(r1, r2) {
+  return !(r2.x > r1.x + r1.width ||
+           r2.x + r2.width < r1.x ||
+           r2.y > r1.y + r1.height ||
+           r2.y + r2.height < r1.y);
+}
 
-    scrollX += scrollSpeed;
+function resetGame() {
+  scrollX = 0;
+  score = 0;
+  gameOver = false;
+  player.y = HEIGHT - 60;
+  player.vy = 0;
+  player.grounded = false;
+  player.isJumping = false;
+  obstacles = levels[currentLevelIndex];
+  playAudio();
+}
 
-    // Рух гравця по вертикалі
-    player.vy += player.gravity;
-    player.y += player.vy;
+function update() {
+  if(gameOver) return;
 
-    // Перевірка зіткнень з платформами
-    player.grounded = false;
-    for(let plat of platforms) {
-      // Платформи теж "рухаються" вліво
-      let platScreenX = plat.x - scrollX;
+  scrollX += scrollSpeed;
 
-      if(platScreenX < WIDTH) {
-        const platRect = {x: platScreenX, y: plat.y, width: plat.width, height: plat.height};
-        const playerRect = {x: player.x, y: player.y, width: player.width, height: player.height};
+  player.vy += player.gravity;
+  player.y += player.vy;
 
-        if(rectsCollide(playerRect, platRect)) {
-          // Просте зіткнення з платформою згори
-          if(player.vy > 0 && player.y + player.height <= plat.y + player.vy) {
-            player.y = plat.y - player.height;
-            player.vy = 0;
-            player.grounded = true;
-
-            // Перевірка чи це перешкода
-            if(plat.color === '#e91e63') {
-              // гравець зіткнувся — кінець гри
-              gameOver = true;
-            }
-          } else {
-            // зіткнення збоку або знизу - теж кінець гри
-            gameOver = true;
-          }
-        }
-      }
-    }
-
-    // Не впадати нижче екрану
-    if(player.y > HEIGHT) gameOver = true;
-
-    if(!gameOver) score += 1;
-  }
-
-  function draw() {
-    ctx.clearRect(0,0,WIDTH,HEIGHT);
-
-    // Малюємо платформи
-    for(let plat of platforms) {
-      let x = plat.x - scrollX;
-      if(x + plat.width >= 0 && x <= WIDTH) {
-        ctx.fillStyle = plat.color;
-        ctx.fillRect(x, plat.y, plat.width, plat.height);
-      }
-    }
-
-    // Малюємо гравця
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y, player.width, player.height);
-
-    // Малюємо очки
-    ctx.fillStyle = 'white';
-    ctx.font = '20px Arial';
-    ctx.fillText('Score: ' + score, 10, 30);
-
-    if(gameOver) {
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(0,0,WIDTH,HEIGHT);
-      ctx.fillStyle = 'white';
-      ctx.font = '40px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Game Over', WIDTH/2, HEIGHT/2 - 20);
-      ctx.font = '20px Arial';
-      ctx.fillText('Тикай, щоб почати знову', WIDTH/2, HEIGHT/2 + 20);
-    }
-  }
-
-  function gameLoop() {
-    update();
-    draw();
-    requestAnimationFrame(gameLoop);
-  }
-
-  gameLoop();
-
-  // Перезапуск гри по кліку після смерті
-  canvas.addEventListener('mousedown', () => {
-    if(gameOver) restart();
-  });
-  canvas.addEventListener('touchstart', e => {
-    e.preventDefault();
-    if(gameOver) restart();
-  }, {passive:false});
-
-  function restart() {
-    scrollX = 0;
-    score = 0;
-    player.y = HEIGHT - 60;
+  if(player.y + player.height >= HEIGHT - 20) {
+    player.y = HEIGHT - 20 - player.height;
     player.vy = 0;
+    player.grounded = true;
+    player.isJumping = false;
+  } else {
     player.grounded = false;
-    gameOver = false;
+    player.isJumping = true;
   }
+
+  // Перевірка колізій
+  const playerRect = {x: player.x, y: player.y, width: player.width, height: player.height};
+  for(let obs of obstacles) {
+    const obsRect = {x: obs.x - scrollX, y: obs.y, width: obs.width, height: obs.height};
+    if(rectCollision(playerRect, obsRect)) {
+      gameOver = true;
+      audio.pause();
+    }
+  }
+
+  // Якщо пройшли рівень (прокрутили всю карту)
+  if(scrollX > 1600) {
+    currentLevelIndex++;
+    if(currentLevelIndex >= levels.length) currentLevelIndex = 0; // циклічно
+    resetGame();
+  }
+
+  score++;
+  updatePlayerColorPulse();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+  // Підлога
+  ctx.fillStyle = '#555';
+  ctx.fillRect(0, HEIGHT - 20, WIDTH, 20);
+
+  // Перешкоди
+  ctx.fillStyle = '#e74c3c';
+  for(let obs of obstacles) {
+    let x = obs.x - scrollX;
+    if(x + obs.width > 0 && x < WIDTH) {
+      ctx.fillRect(x, obs.y, obs.width, obs.height);
+    }
+  }
+
+  // Гравець (пульсуючий колір)
+  ctx.fillStyle = getPlayerColor();
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  // Очки
+  ctx.fillStyle = 'white';
+  ctx.font = '20px Arial';
+  ctx.fillText('Score: ' + score, 10, 30);
+  ctx.fillText('Level: ' + (currentLevelIndex + 1), 10, 60);
+
+  // Game over
+  if(gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = 'white';
+    ctx.font = '40px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Game Over', WIDTH / 2, HEIGHT / 2 - 20);
+    ctx.font = '20px Arial';
+    ctx.fillText('Click or tap to Restart', WIDTH / 2, HEIGHT / 2 + 20);
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function jump() {
+  if(!gameOver && player.grounded) {
+    player.vy = player.jumpPower;
+    player.grounded = false;
+    player.isJumping = true;
+    playAudio();
+  }
+}
+
+canvas.addEventListener('mousedown', () => {
+  if(gameOver) resetGame();
+  jump();
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if(gameOver) resetGame();
+  jump();
+}, {passive:false});
+
+resetGame();
+gameLoop();
 </script>
+
 </body>
 </html>
