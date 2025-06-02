@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<title>Гра з боєм і ворогами</title>
+<title>Гра з рівнями і боєм</title>
 <style>
   body { margin:0; overflow:hidden; background: #333; font-family: monospace; }
   canvas { display:block; margin: 0 auto; background: #87ceeb; }
@@ -12,7 +12,7 @@
 <body>
 
 <canvas id="game" width="800" height="400"></canvas>
-<div id="info">Рух: WASD або стрілки. Ліва кнопка миші — удар.</div>
+<div id="info">Рух: WASD або стрілки. Ліва кнопка миші — удар. Вбивай ворогів, йди у портал!</div>
 
 <script>
 const canvas = document.getElementById('game');
@@ -36,12 +36,12 @@ let mouseDown = false;
 window.addEventListener('mousedown', e => mouseDown = true);
 window.addEventListener('mouseup', e => mouseDown = false);
 
-// Простий світ — земля по низу
+// Світ - земля по низу
 let world = [];
 for(let r=0; r<rows; r++) {
   world[r] = [];
   for(let c=0; c<cols; c++) {
-    if (r >= rows - 2) world[r][c] = GROUND; else world[r][c] = AIR;
+    world[r][c] = (r >= rows - 2) ? GROUND : AIR;
   }
 }
 
@@ -56,7 +56,7 @@ const player = {
   grounded: false,
   hp: 100,
   attackCooldown: 0,
-  facing: 1 // 1 = вправо, -1 = вліво
+  facing: 1
 };
 
 function isSolid(r,c) {
@@ -75,27 +75,50 @@ function spawnEnemy(x,y) {
   });
 }
 
-// Спавнимо кілька ворогів
-spawnEnemy(400, (rows - 3) * tileSize);
-spawnEnemy(600, (rows - 3) * tileSize);
+let currentLevel = 0;
+
+const levels = [
+  {
+    enemies: [{x: 400, y: (rows-3)*tileSize}],
+    portalX: 750,
+    portalY: (rows-3)*tileSize - 35,
+  },
+  {
+    enemies: [{x: 300, y: (rows-3)*tileSize}, {x: 600, y: (rows-3)*tileSize}],
+    portalX: 750,
+    portalY: (rows-3)*tileSize - 35,
+  },
+  {
+    enemies: [{x: 350, y: (rows-3)*tileSize}, {x: 500, y: (rows-3)*tileSize}, {x: 650, y: (rows-3)*tileSize}],
+    portalX: 750,
+    portalY: (rows-3)*tileSize - 35,
+  }
+];
+
+function loadLevel(levelNum) {
+  enemies.length = 0;
+  const lvl = levels[levelNum];
+  lvl.enemies.forEach(e => spawnEnemy(e.x, e.y));
+  player.x = tileSize * 2;
+  player.y = (rows - 3) * tileSize;
+  player.hp = 100;
+}
+
+loadLevel(currentLevel);
 
 function updatePlayer() {
-  // Рух
   player.vx = 0;
   if(keys['a'] || keys['arrowleft']) { player.vx = -player.speed; player.facing = -1; }
   if(keys['d'] || keys['arrowright']) { player.vx = player.speed; player.facing = 1; }
 
-  // Стрибок
   if((keys['w'] || keys['arrowup'] || keys[' ']) && player.grounded) {
     player.vy = -15;
     player.grounded = false;
   }
 
-  // Гравітація
   player.vy += 1;
   if(player.vy > 20) player.vy = 20;
 
-  // Горизонтальна колізія
   player.x += player.vx;
   let leftCol = Math.floor(player.x / tileSize);
   let rightCol = Math.floor((player.x + player.w) / tileSize);
@@ -112,7 +135,6 @@ function updatePlayer() {
     }
   }
 
-  // Вертикальна колізія
   player.y += player.vy;
   topRow = Math.floor(player.y / tileSize);
   bottomRow = Math.floor((player.y + player.h) / tileSize);
@@ -132,35 +154,30 @@ function updatePlayer() {
     }
   }
 
-  // Обмеження в межах екрану
   if(player.x < 0) player.x = 0;
   if(player.x + player.w > canvas.width) player.x = canvas.width - player.w;
   if(player.y > canvas.height) {
     player.hp = 0;
   }
 
-  // Атакуємо
   if(player.attackCooldown > 0) player.attackCooldown--;
 
   if(mouseDown && player.attackCooldown === 0) {
-    player.attackCooldown = 20; // затримка між ударами
+    player.attackCooldown = 20;
     attack();
   }
 }
 
 function attack() {
-  // Область атаки перед гравцем
   const attackRange = {
     x: player.facing === 1 ? player.x + player.w : player.x - 40,
     y: player.y,
     w: 40,
     h: player.h
   };
-  // Візуально показати удар (плюс можна додати анімацію)
   ctx.fillStyle = 'rgba(255,255,0,0.5)';
   ctx.fillRect(attackRange.x, attackRange.y, attackRange.w, attackRange.h);
 
-  // Перевіряємо зіткнення з ворогами
   enemies.forEach(e => {
     if(e.hp > 0 && collideRect(attackRange, e)) {
       e.hp -= 10;
@@ -172,13 +189,9 @@ function updateEnemies() {
   enemies.forEach(e => {
     if(e.hp <= 0) return;
 
-    // Рух ворога: ходить вліво-вправо
     e.x += e.vx;
-
-    // Зміна напрямку при зіткненні зі стіною або межами
     if(e.x < 0 || e.x + e.w > canvas.width) e.vx *= -1;
 
-    // Атакує гравця, якщо поруч і cooldown минув
     if(collideRect(e, player)) {
       if(e.attackCooldown === 0) {
         player.hp -= 5;
@@ -188,7 +201,6 @@ function updateEnemies() {
     if(e.attackCooldown > 0) e.attackCooldown--;
   });
 
-  // Видалення мертвих ворогів (щоб не рендерити)
   for(let i = enemies.length -1; i >=0; i--) {
     if(enemies[i].hp <= 0) enemies.splice(i,1);
   }
@@ -215,11 +227,32 @@ function drawEnemies() {
     if(e.hp > 0) {
       ctx.fillStyle = 'red';
       ctx.fillRect(e.x, e.y, e.w, e.h);
-      // Малюємо шкалу здоров'я
       ctx.fillStyle = 'green';
       ctx.fillRect(e.x, e.y - 6, e.w * (e.hp/20), 4);
     }
   });
+}
+
+function drawPortal() {
+  ctx.fillStyle = 'purple';
+  const p = levels[currentLevel].portalX;
+  const py = levels[currentLevel].portalY;
+  ctx.fillRect(p, py, 40, 40);
+}
+
+function checkPortal() {
+  const p = levels[currentLevel].portalX;
+  const py = levels[currentLevel].portalY;
+  const portalRect = {x: p, y: py, w: 40, h: 40};
+  const playerRect = {x: player.x, y: player.y, w: player.w, h: player.h};
+  if(enemies.length === 0 && collideRect(playerRect, portalRect)) {
+    currentLevel++;
+    if(currentLevel >= levels.length) {
+      alert('Ви пройшли всі рівні! Вітаю!');
+      currentLevel = 0;
+    }
+    loadLevel(currentLevel);
+  }
 }
 
 function drawHP() {
@@ -247,6 +280,7 @@ function update() {
   }
   updatePlayer();
   updateEnemies();
+  checkPortal();
   draw();
   requestAnimationFrame(update);
 }
@@ -256,6 +290,7 @@ function draw() {
   drawWorld();
   drawPlayer();
   drawEnemies();
+  drawPortal();
   drawHP();
 }
 
