@@ -1,169 +1,210 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>Pixel Sword</title>
-<style>
-  body { margin: 0; overflow: hidden; background: #111; }
-  canvas { display: block; margin: auto; background: #1a1a1a; }
-</style>
+  <meta charset="utf-8" />
+  <title>Geometry Dash Boss Edition</title>
+  <style>
+    body { margin: 0; background: #000; color: white; font-family: sans-serif; }
+    canvas { display: block; margin: 0 auto; background: #111; }
+    .menu { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 20px; }
+    .btn {
+      padding: 10px 20px;
+      font-size: 18px;
+      border: none;
+      background: #333;
+      color: white;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  </style>
 </head>
 <body>
-<canvas id="game" width="800" height="400"></canvas>
+
+<h2 style="text-align:center;">Вибери рівень</h2>
+<div class="menu" id="menu"></div>
+<canvas id="game" width="800" height="400" style="display:none;"></canvas>
+
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+let level = 0;
+let playing = false;
+let progress = parseInt(localStorage.getItem('gd-boss-progress')) || 1;
 
-const WIDTH = canvas.width;
-const HEIGHT = canvas.height;
-
-const keys = {};
-document.addEventListener('keydown', e => keys[e.code] = true);
-document.addEventListener('keyup', e => keys[e.code] = false);
-
-// === Гравець ===
 const player = {
-  x: 100, y: 300,
-  vx: 0, vy: 0,
-  width: 30, height: 50,
-  color: '#00d0ff',
-  onGround: false,
-  hp: 5,
-  attacking: false,
-  attackTimer: 0
+  x: 50, y: 300, w: 30, h: 30,
+  vy: 0, grounded: false,
+  gravity: 0.9, jumpPower: -15
 };
 
-// === Вороги ===
-let enemies = [
-  {x: 500, y: 300, width: 30, height: 50, hp: 3, color: '#e74c3c'},
-  {x: 650, y: 300, width: 30, height: 50, hp: 3, color: '#e67e22'}
-];
+let obstacles = [];
+let scrollX = 0;
+let boss = null;
+let speed = 3;
 
-// === Платформи ===
-let platforms = [
-  {x: 0, y: 350, width: 800, height: 50},
-  {x: 300, y: 270, width: 100, height: 20},
-  {x: 550, y: 200, width: 100, height: 20}
-];
-
-function rectsCollide(r1, r2) {
-  return r1.x < r2.x + r2.width &&
-         r1.x + r1.width > r2.x &&
-         r1.y < r2.y + r2.height &&
-         r1.y + r1.height > r2.y;
+function makeLevel(index) {
+  obstacles = [];
+  speed = 3 + index * 0.3;
+  const count = 5 + index * 2;
+  for (let i = 0; i < count; i++) {
+    const w = 20 + Math.random() * 40;
+    const h = 30 + Math.random() * (index * 2 + 30);
+    const x = 250 + i * 100;
+    obstacles.push({x, y: 370 - h, w, h});
+  }
+  if (index === 49) createBoss();
 }
 
-// === Управління ===
-function handleInput() {
-  player.vx = 0;
-  if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -3;
-  if (keys['ArrowRight'] || keys['KeyD']) player.vx = 3;
-  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && player.onGround) {
-    player.vy = -10;
-    player.onGround = false;
-  }
-  if (keys['KeyJ'] && !player.attacking) {
-    player.attacking = true;
-    player.attackTimer = 10;
+function createBoss() {
+  boss = {
+    x: 900, y: 280, w: 60, h: 60, hp: 5,
+    direction: 1
+  };
+}
+
+function drawMenu() {
+  const menu = document.getElementById('menu');
+  menu.innerHTML = '';
+  const max = 50;
+  for (let i = 0; i < max; i++) {
+    const btn = document.createElement('button');
+    btn.textContent = i === 49 ? 'Босс (50)' : `Рівень ${i + 1}`;
+    btn.className = 'btn';
+    btn.disabled = i + 1 > progress;
+    btn.onclick = () => startLevel(i);
+    menu.appendChild(btn);
   }
 }
 
-// === Фізика ===
-function updatePhysics() {
-  player.vy += 0.5; // gravity
-  player.x += player.vx;
+function startLevel(i) {
+  level = i;
+  player.x = 50;
+  player.y = 300;
+  player.vy = 0;
+  scrollX = 0;
+  boss = null;
+  canvas.style.display = 'block';
+  document.getElementById('menu').style.display = 'none';
+  makeLevel(i);
+  playing = true;
+  requestAnimationFrame(loop);
+}
+
+function jump() {
+  if (player.grounded) {
+    player.vy = player.jumpPower;
+  }
+}
+canvas.addEventListener('mousedown', jump);
+canvas.addEventListener('touchstart', jump);
+
+function update() {
+  scrollX += speed;
+  player.vy += player.gravity;
   player.y += player.vy;
+  if (player.y + player.h > 380) {
+    player.y = 380 - player.h;
+    player.vy = 0;
+    player.grounded = true;
+  } else {
+    player.grounded = false;
+  }
 
-  player.onGround = false;
-  for (let plat of platforms) {
-    if (rectsCollide(player, plat)) {
-      if (player.vy > 0) {
-        player.y = plat.y - player.height;
-        player.vy = 0;
-        player.onGround = true;
-      }
+  // Перешкоди
+  for (let o of obstacles) {
+    const ox = o.x - scrollX;
+    if (
+      player.x < ox + o.w &&
+      player.x + player.w > ox &&
+      player.y < o.y + o.h &&
+      player.y + player.h > o.y
+    ) {
+      gameOver();
+      return;
     }
   }
 
-  // Межі
-  if (player.y > HEIGHT) {
-    player.y = 0;
-    player.hp -= 1;
-  }
-
-  if (player.attacking) {
-    player.attackTimer--;
-    if (player.attackTimer <= 0) player.attacking = false;
-  }
-
-  // Атака по ворогах
-  if (player.attacking) {
-    for (let enemy of enemies) {
-      const swordRange = {
-        x: player.x + (player.vx >= 0 ? player.width : -20),
-        y: player.y + 10,
-        width: 20, height: 30
-      };
-      if (rectsCollide(swordRange, enemy)) {
-        enemy.hp -= 1;
-      }
+  // Босс
+  if (boss) {
+    const bx = boss.x - scrollX;
+    boss.y += boss.direction * 2;
+    if (boss.y < 100 || boss.y > 320) boss.direction *= -1;
+    if (
+      player.x < bx + boss.w &&
+      player.x + player.w > bx &&
+      player.y < boss.y + boss.h &&
+      player.y + player.h > boss.y
+    ) {
+      boss.hp -= 1;
+      if (boss.hp <= 0) victory();
+      else player.vy = -10;
     }
   }
 
-  // Видалити мертвих ворогів
-  enemies = enemies.filter(e => e.hp > 0);
+  // Виграш
+  if (!boss && scrollX > 1000 + level * 50) {
+    victory();
+  }
 }
 
-// === Малювання ===
 function draw() {
-  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(0, 380, 800, 20);
 
-  // Платформи
-  ctx.fillStyle = '#333';
-  for (let plat of platforms) {
-    ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+  // Перешкоди
+  ctx.fillStyle = '#f55';
+  for (let o of obstacles) {
+    const x = o.x - scrollX;
+    ctx.fillRect(x, o.y, o.w, o.h);
+  }
+
+  // Бос
+  if (boss) {
+    const bx = boss.x - scrollX;
+    ctx.fillStyle = 'purple';
+    ctx.fillRect(bx, boss.y, boss.w, boss.h);
+    ctx.fillStyle = 'white';
+    ctx.fillText(`HP: ${boss.hp}`, bx + 10, boss.y - 5);
   }
 
   // Гравець
-  ctx.fillStyle = player.color;
-  ctx.fillRect(player.x, player.y, player.width, player.height);
-
-  // Меч (якщо атака)
-  if (player.attacking) {
-    ctx.fillStyle = '#ffff00';
-    const swordX = player.x + (player.vx >= 0 ? player.width : -20);
-    ctx.fillRect(swordX, player.y + 10, 20, 30);
-  }
-
-  // Вороги
-  for (let enemy of enemies) {
-    ctx.fillStyle = enemy.color;
-    ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
-  }
-
-  // Життя
-  ctx.fillStyle = 'white';
-  ctx.font = '16px Arial';
-  ctx.fillText('HP: ' + player.hp, 10, 20);
-  if (player.hp <= 0) {
-    ctx.fillStyle = 'rgba(0,0,0,0.8)';
-    ctx.fillRect(0,0,WIDTH,HEIGHT);
-    ctx.fillStyle = 'red';
-    ctx.font = '40px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Game Over', WIDTH/2, HEIGHT/2);
-  }
+  ctx.fillStyle = '#0cf';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
 }
 
-// === Цикл гри ===
 function loop() {
-  handleInput();
-  updatePhysics();
+  if (!playing) return;
+  update();
   draw();
   requestAnimationFrame(loop);
 }
-loop();
+
+function gameOver() {
+  playing = false;
+  setTimeout(() => {
+    canvas.style.display = 'none';
+    drawMenu();
+    document.getElementById('menu').style.display = 'flex';
+  }, 800);
+}
+
+function victory() {
+  playing = false;
+  if (progress < level + 2) {
+    progress = level + 2;
+    localStorage.setItem('gd-boss-progress', progress);
+  }
+  setTimeout(() => {
+    canvas.style.display = 'none';
+    drawMenu();
+    document.getElementById('menu').style.display = 'flex';
+  }, 800);
+}
+
+drawMenu();
 </script>
+
 </body>
 </html>
-
