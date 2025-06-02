@@ -2,111 +2,250 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Кубічна 3D гра з ходьбою та кліками</title>
+  <title>3D гра для телефону з інвентарем</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
-    body { margin: 0; overflow: hidden; }
+    body, html {
+      margin: 0; padding: 0; overflow: hidden;
+      font-family: sans-serif;
+      touch-action: none; /* Вимикаємо скролл при торканні */
+      -webkit-user-select:none;
+      -moz-user-select:none;
+      -ms-user-select:none;
+      user-select:none;
+    }
     #info {
       position: absolute; top: 10px; left: 10px;
       background: rgba(0,0,0,0.5);
       color: white; padding: 5px 10px;
-      font-family: sans-serif;
+      z-index: 10;
+      font-size: 14px;
+      max-width: 300px;
+      user-select: none;
+    }
+    #inventory {
+      position: absolute;
+      bottom: 10px; left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 8px;
       z-index: 10;
       user-select: none;
     }
-    canvas { display: block; }
+    .slot {
+      width: 40px; height: 40px;
+      border: 2px solid #555;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      border-radius: 4px;
+      touch-action: manipulation;
+    }
+    .slot.selected {
+      border-color: yellow;
+    }
+    .color-block {
+      width: 30px; height: 30px;
+      border-radius: 2px;
+    }
+    #joystick {
+      position: absolute;
+      bottom: 80px;
+      left: 20px;
+      width: 120px;
+      height: 120px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 50%;
+      touch-action: none;
+      user-select:none;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #joystick-inner {
+      width: 60px;
+      height: 60px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 50%;
+      position: relative;
+      touch-action: none;
+    }
   </style>
 </head>
 <body>
-<div id="info">WASD - ходити | ЛКМ - видалити блок | ПКМ - додати блок | Затисни ЛКМ та рухай мишею - повертатись</div>
+<div id="info">
+  Ліворуч: джойстик для руху<br/>
+  Праворуч: свайп — поворот камери<br/>
+  Тап — видалити блок<br/>
+  Довгий тап — додати вибраний блок<br/>
+  Внизу: вибір блоку
+</div>
+
+<div id="inventory"></div>
+
+<div id="joystick">
+  <div id="joystick-inner"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 
 <script>
-  // Сцена, камера, рендерер
+  // THREE.JS базова сцена
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Світло
   const light = new THREE.HemisphereLight(0xffffff, 0x444444);
   scene.add(light);
 
-  // Матеріали
-  const blockMaterial = new THREE.MeshLambertMaterial({ color: 0x00aa00 });
-  const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
-
-  // Карта блоків для позицій
+  // Блоки
+  const blockTypes = [
+    { name: "Зелений", color: 0x00aa00 },
+    { name: "Червоний", color: 0xaa0000 },
+    { name: "Синій", color: 0x0000aa },
+    { name: "Жовтий", color: 0xaaaa00 },
+  ];
+  const blockMaterials = blockTypes.map(b => new THREE.MeshLambertMaterial({color: b.color}));
   const blocks = new Map();
 
-  // Створимо землю 20x1x20
-  function addBlock(x,y,z) {
+  function addBlock(x,y,z, typeIndex=0) {
     const geometry = new THREE.BoxGeometry(1,1,1);
-    const mesh = new THREE.Mesh(geometry, blockMaterial);
+    const mesh = new THREE.Mesh(geometry, blockMaterials[typeIndex]);
     mesh.position.set(x,y,z);
+    mesh.userData.type = typeIndex;
     scene.add(mesh);
     blocks.set(`${x},${y},${z}`, mesh);
   }
-
   for(let x=-10; x<=10; x++) {
     for(let z=-10; z<=10; z++) {
-      addBlock(x,-1,z);
+      addBlock(x,-1,z, 0);
     }
   }
 
   // Підсвітка для вибраного блоку
+  const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
   const highlightBox = new THREE.Mesh(new THREE.BoxGeometry(1.1,1.1,1.1), highlightMaterial);
   scene.add(highlightBox);
   highlightBox.visible = false;
 
-  // Камера стартова позиція
+  // Камера
   camera.position.set(0,1.5,5);
-  camera.lookAt(0,0,0);
 
-  // Клавіші
-  const keys = {};
-  document.addEventListener('keydown', e => keys[e.code] = true);
-  document.addEventListener('keyup', e => keys[e.code] = false);
-
-  // Рух миші з затисненням ЛКМ для повороту
-  let isRotating = false;
-  let prevMouse = {x:0, y:0};
+  // Вхідні дані
   let yaw = 0;
   let pitch = 0;
 
-  window.addEventListener('mousedown', e => {
-    if(e.button === 0) { // ЛКМ
-      isRotating = true;
-      prevMouse.x = e.clientX;
-      prevMouse.y = e.clientY;
-    }
-  });
-  window.addEventListener('mouseup', e => {
-    if(e.button === 0) {
-      isRotating = false;
-    }
-  });
-  window.addEventListener('mousemove', e => {
-    if(isRotating) {
-      const movementX = e.clientX - prevMouse.x;
-      const movementY = e.clientY - prevMouse.y;
-      prevMouse.x = e.clientX;
-      prevMouse.y = e.clientY;
+  // Джойстик руху
+  const joystick = document.getElementById('joystick');
+  const joystickInner = document.getElementById('joystick-inner');
 
-      yaw -= movementX * 0.002;
-      pitch -= movementY * 0.002;
+  let joystickActive = false;
+  let joystickStart = {x:0,y:0};
+  let joystickPos = {x:0,y:0};
+  let moveVector = {x:0, y:0};
 
-      pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
-    }
+  joystick.addEventListener('touchstart', e => {
+    e.preventDefault();
+    joystickActive = true;
+    joystickStart.x = e.touches[0].clientX;
+    joystickStart.y = e.touches[0].clientY;
+    joystickPos.x = 0;
+    joystickPos.y = 0;
+    updateJoystickVisual();
   });
 
-  // Управління ходьбою
-  const velocity = new THREE.Vector3();
+  joystick.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if(!joystickActive) return;
+    const touch = e.touches[0];
+    let dx = touch.clientX - joystickStart.x;
+    let dy = touch.clientY - joystickStart.y;
 
-  // Рейкаст для визначення блоку на який дивимось
+    // Обмежуємо радіус джойстика до 40px
+    const maxRadius = 40;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if(dist > maxRadius) {
+      const angle = Math.atan2(dy, dx);
+      dx = Math.cos(angle)*maxRadius;
+      dy = Math.sin(angle)*maxRadius;
+    }
+
+    joystickPos.x = dx;
+    joystickPos.y = dy;
+
+    // Нормалізуємо рух в діапазон [-1,1]
+    moveVector.x = dx / maxRadius;
+    moveVector.y = dy / maxRadius;
+
+    updateJoystickVisual();
+  });
+
+  joystick.addEventListener('touchend', e => {
+    e.preventDefault();
+    joystickActive = false;
+    moveVector.x = 0;
+    moveVector.y = 0;
+    joystickPos.x = 0;
+    joystickPos.y = 0;
+    updateJoystickVisual();
+  });
+
+  function updateJoystickVisual() {
+    joystickInner.style.transform = `translate(${joystickPos.x}px, ${joystickPos.y}px)`;
+  }
+
+  // Сенсор для повороту камери (справа)
+  let pointerId = null;
+  let lastTouch = null;
+  let isRotating = false;
+
+  window.addEventListener('touchstart', e => {
+    for(let touch of e.changedTouches) {
+      if(touch.clientX > window.innerWidth/2 && pointerId === null) {
+        pointerId = touch.identifier;
+        lastTouch = {x: touch.clientX, y: touch.clientY};
+        isRotating = false;
+      }
+    }
+  });
+
+  window.addEventListener('touchmove', e => {
+    if(pointerId === null) return;
+    for(let touch of e.changedTouches) {
+      if(touch.identifier === pointerId) {
+        const dx = touch.clientX - lastTouch.x;
+        const dy = touch.clientY - lastTouch.y;
+        lastTouch = {x: touch.clientX, y: touch.clientY};
+
+        if(Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+          isRotating = true;
+          yaw -= dx * 0.005;
+          pitch -= dy * 0.005;
+          pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
+        }
+      }
+    }
+  });
+
+  window.addEventListener('touchend', e => {
+    for(let touch of e.changedTouches) {
+      if(touch.identifier === pointerId) {
+        pointerId = null;
+        isRotating = false;
+      }
+    }
+  });
+
+  // Рейкаст для блоків
   const raycaster = new THREE.Raycaster();
-  const pointer = new THREE.Vector2();
 
   function getBlockAtPosition(pos) {
     return blocks.get(`${pos.x},${pos.y},${pos.z}`);
@@ -128,28 +267,11 @@
       z: Math.round(position.z + normal.z)
     };
     if(!blocks.has(`${newPos.x},${newPos.y},${newPos.z}`)) {
-      addBlock(newPos.x, newPos.y, newPos.z);
+      addBlock(newPos.x, newPos.y, newPos.z, selectedBlockType);
     }
   }
 
-  // Обробка кліків
-  window.addEventListener('contextmenu', e => e.preventDefault()); // Заборонити контекстне меню ПКМ
-
-  window.addEventListener('mousedown', e => {
-    if(e.button === 2) { // ПКМ - додати блок
-      if(highlightBox.visible) {
-        const pos = highlightBox.position;
-        // Додати блок біля позиції по нормалі
-        addBlockNear(pos, highlightNormal);
-      }
-    } else if(e.button === 0 && !isRotating) { // ЛКМ без обертання - видалити блок
-      if(highlightBox.visible) {
-        removeBlockAtPosition(highlightBox.position);
-      }
-    }
-  });
-
-  // Для підсвітки вибраного блоку
+  // Підсвітка
   let highlightNormal = new THREE.Vector3();
 
   function updateHighlight() {
@@ -166,40 +288,37 @@
     }
   }
 
-  function animate() {
-    requestAnimationFrame(animate);
+  // Інвентар
+  const inventory = document.getElementById('inventory');
+  let selectedBlockType = 0;
 
-    // Рух
-    const speed = 0.05;
-    const dir = new THREE.Vector3();
-    if(keys['KeyW']) dir.z -= 1;
-    if(keys['KeyS']) dir.z += 1;
-    if(keys['KeyA']) dir.x -= 1;
-    if(keys['KeyD']) dir.x += 1;
-    dir.normalize();
+  function createInventory() {
+    blockTypes.forEach((block, i) => {
+      const slot = document.createElement('div');
+      slot.className = 'slot' + (i === selectedBlockType ? ' selected' : '');
+      slot.title = block.name;
 
-    // Розрахунок напрямку руху від повороту камери
-    const moveX = dir.x * Math.cos(yaw) - dir.z * Math.sin(yaw);
-    const moveZ = dir.z * Math.cos(yaw) + dir.x * Math.sin(yaw);
+      const colorBlock = document.createElement('div');
+      colorBlock.className = 'color-block';
+      colorBlock.style.backgroundColor = '#' + block.color.toString(16).padStart(6,'0');
+      slot.appendChild(colorBlock);
 
-    camera.position.x += moveX * speed;
-    camera.position.z += moveZ * speed;
+      slot.addEventListener('touchstart', e => {
+        e.preventDefault();
+        selectBlockType(i);
+      });
 
-    // Повороти камери
-    camera.rotation.set(pitch, yaw, 0);
-
-    updateHighlight();
-
-    renderer.render(scene, camera);
+      inventory.appendChild(slot);
+    });
   }
+  function selectBlockType(i) {
+    selectedBlockType = i;
+    Array.from(inventory.children).forEach((slot, idx) => {
+      slot.classList.toggle('selected', idx === i);
+    });
+  }
+  createInventory();
 
-  animate();
-
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-</script>
-</body>
-</html>
+  // Обробка тапів справа для ЛКМ і ПКМ
+  let tapTimeout = null;
+  let tapStartTime = 0;
