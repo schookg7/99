@@ -2,25 +2,14 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<title>Geometry Dash Покращена Версія - Повільна та Довга</title>
+<title>Pixel Sword</title>
 <style>
-  body, html {
-    margin: 0; padding: 0; overflow: hidden;
-    background: #222;
-    user-select: none;
-    -webkit-user-select:none;
-  }
-  canvas {
-    display: block; margin: auto;
-    background: #111;
-    cursor: pointer;
-  }
+  body { margin: 0; overflow: hidden; background: #111; }
+  canvas { display: block; margin: auto; background: #1a1a1a; }
 </style>
 </head>
 <body>
-
 <canvas id="game" width="800" height="400"></canvas>
-
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -28,155 +17,153 @@ const ctx = canvas.getContext('2d');
 const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
 
+const keys = {};
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+// === Гравець ===
 const player = {
-  x: 100,
-  y: HEIGHT - 60,
-  width: 40,
-  height: 40,
-  vy: 0,
-  gravity: 0.8,
-  jumpPower: -15,
-  grounded: false,
-  baseColor: '#00ffff',
-  colorPulse: 0,
-  colorPulseDir: 1,
-  isJumping: false
+  x: 100, y: 300,
+  vx: 0, vy: 0,
+  width: 30, height: 50,
+  color: '#00d0ff',
+  onGround: false,
+  hp: 5,
+  attacking: false,
+  attackTimer: 0
 };
 
-let scrollX = 0;
-const scrollSpeed = 3; // Повільніше рух
+// === Вороги ===
+let enemies = [
+  {x: 500, y: 300, width: 30, height: 50, hp: 3, color: '#e74c3c'},
+  {x: 650, y: 300, width: 30, height: 50, hp: 3, color: '#e67e22'}
+];
 
-let score = 0;
-let gameOver = false;
+// === Платформи ===
+let platforms = [
+  {x: 0, y: 350, width: 800, height: 50},
+  {x: 300, y: 270, width: 100, height: 20},
+  {x: 550, y: 200, width: 100, height: 20}
+];
 
-// Створимо довгий рівень з багатьма перешкодами (до 1000 по осі X)
-let obstacles = [];
-for(let i=400; i<=1000; i+=40) {
-  // Випадкова висота перешкоди 40, 60, 80, 100
-  let h = 40 + 20 * Math.floor(Math.random()*4);
-  obstacles.push({
-    x: i + Math.floor(Math.random()*30), // трохи рандому по X
-    y: HEIGHT - h - 20,
-    width: 30 + Math.floor(Math.random()*20),
-    height: h
-  });
+function rectsCollide(r1, r2) {
+  return r1.x < r2.x + r2.width &&
+         r1.x + r1.width > r2.x &&
+         r1.y < r2.y + r2.height &&
+         r1.y + r1.height > r2.y;
 }
 
-function rectCollision(r1, r2) {
-  return !(r2.x > r1.x + r1.width ||
-           r2.x + r2.width < r1.x ||
-           r2.y > r1.y + r1.height ||
-           r2.y + r2.height < r1.y);
+// === Управління ===
+function handleInput() {
+  player.vx = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -3;
+  if (keys['ArrowRight'] || keys['KeyD']) player.vx = 3;
+  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && player.onGround) {
+    player.vy = -10;
+    player.onGround = false;
+  }
+  if (keys['KeyJ'] && !player.attacking) {
+    player.attacking = true;
+    player.attackTimer = 10;
+  }
 }
 
-function resetGame() {
-  scrollX = 0;
-  score = 0;
-  gameOver = false;
-  player.y = HEIGHT - 60;
-  player.vy = 0;
-  player.grounded = false;
-  player.isJumping = false;
-}
-
-function update() {
-  if(gameOver) return;
-
-  scrollX += scrollSpeed;
-
-  player.vy += player.gravity;
+// === Фізика ===
+function updatePhysics() {
+  player.vy += 0.5; // gravity
+  player.x += player.vx;
   player.y += player.vy;
 
-  if(player.y + player.height >= HEIGHT - 20) {
-    player.y = HEIGHT - 20 - player.height;
-    player.vy = 0;
-    player.grounded = true;
-    player.isJumping = false;
-  } else {
-    player.grounded = false;
-    player.isJumping = true;
-  }
-
-  const playerRect = {x: player.x, y: player.y, width: player.width, height: player.height};
-  for(let obs of obstacles) {
-    const obsRect = {x: obs.x - scrollX, y: obs.y, width: obs.width, height: obs.height};
-    if(rectCollision(playerRect, obsRect)) {
-      gameOver = true;
+  player.onGround = false;
+  for (let plat of platforms) {
+    if (rectsCollide(player, plat)) {
+      if (player.vy > 0) {
+        player.y = plat.y - player.height;
+        player.vy = 0;
+        player.onGround = true;
+      }
     }
   }
 
-  // Якщо пройшли рівень (scrollX більше за останню перешкоду + запас)
-  if(scrollX > 1100) {
-    gameOver = true;
+  // Межі
+  if (player.y > HEIGHT) {
+    player.y = 0;
+    player.hp -= 1;
   }
 
-  score++;
+  if (player.attacking) {
+    player.attackTimer--;
+    if (player.attackTimer <= 0) player.attacking = false;
+  }
+
+  // Атака по ворогах
+  if (player.attacking) {
+    for (let enemy of enemies) {
+      const swordRange = {
+        x: player.x + (player.vx >= 0 ? player.width : -20),
+        y: player.y + 10,
+        width: 20, height: 30
+      };
+      if (rectsCollide(swordRange, enemy)) {
+        enemy.hp -= 1;
+      }
+    }
+  }
+
+  // Видалити мертвих ворогів
+  enemies = enemies.filter(e => e.hp > 0);
 }
 
+// === Малювання ===
 function draw() {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-  // Підлога
-  ctx.fillStyle = '#555';
-  ctx.fillRect(0, HEIGHT - 20, WIDTH, 20);
-
-  // Перешкоди
-  ctx.fillStyle = '#e74c3c';
-  for(let obs of obstacles) {
-    let x = obs.x - scrollX;
-    if(x + obs.width > 0 && x < WIDTH) {
-      ctx.fillRect(x, obs.y, obs.width, obs.height);
-    }
+  // Платформи
+  ctx.fillStyle = '#333';
+  for (let plat of platforms) {
+    ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
   }
 
   // Гравець
-  ctx.fillStyle = player.baseColor;
+  ctx.fillStyle = player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
 
-  // Очки
-  ctx.fillStyle = 'white';
-  ctx.font = '20px Arial';
-  ctx.fillText('Score: ' + score, 10, 30);
+  // Меч (якщо атака)
+  if (player.attacking) {
+    ctx.fillStyle = '#ffff00';
+    const swordX = player.x + (player.vx >= 0 ? player.width : -20);
+    ctx.fillRect(swordX, player.y + 10, 20, 30);
+  }
 
-  if(gameOver) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  // Вороги
+  for (let enemy of enemies) {
+    ctx.fillStyle = enemy.color;
+    ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+  }
+
+  // Життя
+  ctx.fillStyle = 'white';
+  ctx.font = '16px Arial';
+  ctx.fillText('HP: ' + player.hp, 10, 20);
+  if (player.hp <= 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0,0,WIDTH,HEIGHT);
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = 'red';
     ctx.font = '40px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Game Over', WIDTH/2, HEIGHT/2 - 20);
-    ctx.font = '20px Arial';
-    ctx.fillText('Click or tap to Restart', WIDTH/2, HEIGHT/2 + 20);
+    ctx.fillText('Game Over', WIDTH/2, HEIGHT/2);
   }
 }
 
-function gameLoop() {
-  update();
+// === Цикл гри ===
+function loop() {
+  handleInput();
+  updatePhysics();
   draw();
-  requestAnimationFrame(gameLoop);
+  requestAnimationFrame(loop);
 }
-
-function jump() {
-  if(!gameOver && player.grounded) {
-    player.vy = player.jumpPower;
-    player.grounded = false;
-    player.isJumping = true;
-  }
-}
-
-canvas.addEventListener('mousedown', () => {
-  if(gameOver) resetGame();
-  jump();
-});
-canvas.addEventListener('touchstart', e => {
-  e.preventDefault();
-  if(gameOver) resetGame();
-  jump();
-}, {passive:false});
-
-resetGame();
-gameLoop();
+loop();
 </script>
-
 </body>
 </html>
+
