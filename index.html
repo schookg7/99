@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Mini Minecraft Walk</title>
+  <title>Minecraft Walk</title>
   <style>
     body { margin: 0; overflow: hidden; }
     #instructions {
@@ -16,24 +16,22 @@
       font-size: 24px;
       font-family: sans-serif;
       cursor: pointer;
+      z-index: 10;
     }
   </style>
 </head>
 <body>
-<div id="instructions">Клікни щоб почати</div>
+<div id="instructions">Натисніть, щоб почати</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/PointerLockControls.js"></script>
 
 <script>
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
-
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-  scene.add(light);
 
   const controls = new THREE.PointerLockControls(camera, document.body);
   const instructions = document.getElementById('instructions');
@@ -42,27 +40,31 @@
     controls.lock();
   });
 
-  controls.addEventListener('lock', () => instructions.style.display = 'none');
-  controls.addEventListener('unlock', () => instructions.style.display = '');
+  controls.addEventListener('lock', () => {
+    instructions.style.display = 'none';
+  });
+
+  controls.addEventListener('unlock', () => {
+    instructions.style.display = '';
+  });
 
   scene.add(controls.getObject());
 
-  const blockMaterial = new THREE.MeshLambertMaterial({ color: 0x55cc55 });
+  // Освітлення
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+  scene.add(light);
 
-  // Створення землі (20x1x20)
-  const world = new Map();
+  // Створення землі
+  const material = new THREE.MeshLambertMaterial({ color: 0x55cc55 });
   for (let x = -10; x <= 10; x++) {
     for (let z = -10; z <= 10; z++) {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const cube = new THREE.Mesh(geometry, blockMaterial);
+      const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
       cube.position.set(x, -1, z);
-      cube.receiveShadow = true;
       scene.add(cube);
-      world.set(`${x},-1,${z}`, cube);
     }
   }
 
-  // Управління
+  // Камера та гравітація
   const velocity = new THREE.Vector3();
   const direction = new THREE.Vector3();
   const keys = {};
@@ -76,11 +78,11 @@
 
   function animate() {
     requestAnimationFrame(animate);
-
     const delta = clock.getDelta();
-    velocity.x -= velocity.x * 10.0 * delta;
-    velocity.z -= velocity.z * 10.0 * delta;
-    velocity.y -= 9.8 * 5.0 * delta; // гравітація
+
+    velocity.x -= velocity.x * 10 * delta;
+    velocity.z -= velocity.z * 10 * delta;
+    velocity.y -= 9.8 * 5 * delta; // гравітація
 
     direction.z = Number(keys['KeyW']) - Number(keys['KeyS']);
     direction.x = Number(keys['KeyD']) - Number(keys['KeyA']);
@@ -96,10 +98,8 @@
 
     controls.moveRight(-velocity.x * delta);
     controls.moveForward(-velocity.z * delta);
-
     controls.getObject().position.y += velocity.y * delta;
 
-    // Земля
     if (controls.getObject().position.y < 1) {
       velocity.y = 0;
       controls.getObject().position.y = 1;
@@ -112,7 +112,7 @@
   animate();
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
