@@ -1,210 +1,208 @@
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 <head>
-  <meta charset="utf-8" />
-  <title>Geometry Dash Boss Edition</title>
-  <style>
-    body { margin: 0; background: #000; color: white; font-family: sans-serif; }
-    canvas { display: block; margin: 0 auto; background: #111; }
-    .menu { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 20px; }
-    .btn {
-      padding: 10px 20px;
-      font-size: 18px;
-      border: none;
-      background: #333;
-      color: white;
-      cursor: pointer;
-      border-radius: 5px;
-    }
-    .btn:disabled { opacity: 0.3; cursor: not-allowed; }
-  </style>
+<meta charset="UTF-8" />
+<title>Pixel World Lite</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #87ceeb; }
+  canvas { display: block; margin: 0 auto; background: #6b8e23; }
+  #inventory {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); padding: 5px; border-radius: 5px;
+    display: flex; gap: 10px;
+  }
+  .slot {
+    width: 40px; height: 40px; border: 2px solid white;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 24px;
+    color: white;
+    user-select: none;
+  }
+  .selected {
+    border-color: yellow;
+  }
+</style>
 </head>
 <body>
 
-<h2 style="text-align:center;">Вибери рівень</h2>
-<div class="menu" id="menu"></div>
-<canvas id="game" width="800" height="400" style="display:none;"></canvas>
+<canvas id="game" width="800" height="400"></canvas>
+<div id="inventory"></div>
 
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-let level = 0;
-let playing = false;
-let progress = parseInt(localStorage.getItem('gd-boss-progress')) || 1;
 
-const player = {
-  x: 50, y: 300, w: 30, h: 30,
-  vy: 0, grounded: false,
-  gravity: 0.9, jumpPower: -15
+const tileSize = 40;
+const cols = Math.floor(canvas.width / tileSize);
+const rows = Math.floor(canvas.height / tileSize);
+
+const world = [];
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3;
+
+const blockColors = {
+  [AIR]: null,
+  [GRASS]: '#228B22',
+  [DIRT]: '#8B4513',
+  [STONE]: '#888'
 };
 
-let obstacles = [];
-let scrollX = 0;
-let boss = null;
-let speed = 3;
-
-function makeLevel(index) {
-  obstacles = [];
-  speed = 3 + index * 0.3;
-  const count = 5 + index * 2;
-  for (let i = 0; i < count; i++) {
-    const w = 20 + Math.random() * 40;
-    const h = 30 + Math.random() * (index * 2 + 30);
-    const x = 250 + i * 100;
-    obstacles.push({x, y: 370 - h, w, h});
-  }
-  if (index === 49) createBoss();
-}
-
-function createBoss() {
-  boss = {
-    x: 900, y: 280, w: 60, h: 60, hp: 5,
-    direction: 1
-  };
-}
-
-function drawMenu() {
-  const menu = document.getElementById('menu');
-  menu.innerHTML = '';
-  const max = 50;
-  for (let i = 0; i < max; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i === 49 ? 'Босс (50)' : `Рівень ${i + 1}`;
-    btn.className = 'btn';
-    btn.disabled = i + 1 > progress;
-    btn.onclick = () => startLevel(i);
-    menu.appendChild(btn);
+// Ініціалізація світу: земля + повітря
+for(let r = 0; r < rows; r++) {
+  world[r] = [];
+  for(let c = 0; c < cols; c++) {
+    if(r > rows - 3) world[r][c] = DIRT;
+    else if (r === rows - 3) world[r][c] = GRASS;
+    else world[r][c] = AIR;
   }
 }
 
-function startLevel(i) {
-  level = i;
-  player.x = 50;
-  player.y = 300;
-  player.vy = 0;
-  scrollX = 0;
-  boss = null;
-  canvas.style.display = 'block';
-  document.getElementById('menu').style.display = 'none';
-  makeLevel(i);
-  playing = true;
-  requestAnimationFrame(loop);
-}
+// Гравець
+const player = {
+  x: 5 * tileSize,
+  y: (rows - 4) * tileSize,
+  w: 30,
+  h: 35,
+  vx: 0,
+  vy: 0,
+  speed: 5,
+  jumping: false,
+  grounded: false
+};
 
-function jump() {
-  if (player.grounded) {
-    player.vy = player.jumpPower;
-  }
+// Інвентар
+const inventory = [GRASS, DIRT, STONE];
+let selectedSlot = 0;
+
+const inventoryDiv = document.getElementById('inventory');
+function drawInventory() {
+  inventoryDiv.innerHTML = '';
+  inventory.forEach((block, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'slot' + (i === selectedSlot ? ' selected' : '');
+    slot.textContent = '⬛'; // блок символом
+    slot.style.color = blockColors[block] || 'white';
+    slot.onclick = () => { selectedSlot = i; drawInventory(); }
+    inventoryDiv.appendChild(slot);
+  });
 }
-canvas.addEventListener('mousedown', jump);
-canvas.addEventListener('touchstart', jump);
+drawInventory();
+
+// Фізика та керування
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+function isSolid(r,c) {
+  return r >= 0 && r < rows && c >= 0 && c < cols && world[r][c] !== AIR;
+}
 
 function update() {
-  scrollX += speed;
-  player.vy += player.gravity;
-  player.y += player.vy;
-  if (player.y + player.h > 380) {
-    player.y = 380 - player.h;
-    player.vy = 0;
-    player.grounded = true;
-  } else {
+  // Горизонтальний рух
+  if(keys['a'] || keys['arrowleft']) player.vx = -player.speed;
+  else if(keys['d'] || keys['arrowright']) player.vx = player.speed;
+  else player.vx = 0;
+
+  // Стрибок
+  if((keys['w'] || keys['arrowup'] || keys[' ']) && player.grounded) {
+    player.vy = -15;
     player.grounded = false;
   }
 
-  // Перешкоди
-  for (let o of obstacles) {
-    const ox = o.x - scrollX;
-    if (
-      player.x < ox + o.w &&
-      player.x + player.w > ox &&
-      player.y < o.y + o.h &&
-      player.y + player.h > o.y
-    ) {
-      gameOver();
-      return;
+  // Гравітація
+  player.vy += 1; // гравітація
+  if(player.vy > 20) player.vy = 20;
+
+  // Рух по Х
+  player.x += player.vx;
+  // Колізії по Х
+  let leftCol = Math.floor(player.x / tileSize);
+  let rightCol = Math.floor((player.x + player.w) / tileSize);
+  let topRow = Math.floor(player.y / tileSize);
+  let bottomRow = Math.floor((player.y + player.h) / tileSize);
+
+  if(player.vx > 0) {
+    if(isSolid(topRow, rightCol) || isSolid(bottomRow, rightCol)) {
+      player.x = rightCol * tileSize - player.w - 0.01;
+    }
+  } else if(player.vx < 0) {
+    if(isSolid(topRow, leftCol) || isSolid(bottomRow, leftCol)) {
+      player.x = (leftCol + 1) * tileSize + 0.01;
     }
   }
 
-  // Босс
-  if (boss) {
-    const bx = boss.x - scrollX;
-    boss.y += boss.direction * 2;
-    if (boss.y < 100 || boss.y > 320) boss.direction *= -1;
-    if (
-      player.x < bx + boss.w &&
-      player.x + player.w > bx &&
-      player.y < boss.y + boss.h &&
-      player.y + player.h > boss.y
-    ) {
-      boss.hp -= 1;
-      if (boss.hp <= 0) victory();
-      else player.vy = -10;
-    }
-  }
+  // Рух по Y
+  player.y += player.vy;
+  topRow = Math.floor(player.y / tileSize);
+  bottomRow = Math.floor((player.y + player.h) / tileSize);
 
-  // Виграш
-  if (!boss && scrollX > 1000 + level * 50) {
-    victory();
+  if(player.vy > 0) {
+    if(isSolid(bottomRow, leftCol) || isSolid(bottomRow, rightCol)) {
+      player.y = bottomRow * tileSize - player.h - 0.01;
+      player.vy = 0;
+      player.grounded = true;
+      player.jumping = false;
+    } else {
+      player.grounded = false;
+    }
+  } else if(player.vy < 0) {
+    if(isSolid(topRow, leftCol) || isSolid(topRow, rightCol)) {
+      player.y = (topRow + 1) * tileSize + 0.01;
+      player.vy = 0;
+    }
   }
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#444';
-  ctx.fillRect(0, 380, 800, 20);
-
-  // Перешкоди
-  ctx.fillStyle = '#f55';
-  for (let o of obstacles) {
-    const x = o.x - scrollX;
-    ctx.fillRect(x, o.y, o.w, o.h);
+function drawWorld() {
+  for(let r = 0; r < rows; r++) {
+    for(let c = 0; c < cols; c++) {
+      let block = world[r][c];
+      if(block !== AIR) {
+        ctx.fillStyle = blockColors[block];
+        ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+        ctx.strokeStyle = '#444';
+        ctx.strokeRect(c * tileSize, r * tileSize, tileSize, tileSize);
+      }
+    }
   }
+}
 
-  // Бос
-  if (boss) {
-    const bx = boss.x - scrollX;
-    ctx.fillStyle = 'purple';
-    ctx.fillRect(bx, boss.y, boss.w, boss.h);
-    ctx.fillStyle = 'white';
-    ctx.fillText(`HP: ${boss.hp}`, bx + 10, boss.y - 5);
-  }
-
-  // Гравець
-  ctx.fillStyle = '#0cf';
+function drawPlayer() {
+  ctx.fillStyle = '#ff0';
   ctx.fillRect(player.x, player.y, player.w, player.h);
 }
 
-function loop() {
-  if (!playing) return;
+function gameLoop() {
   update();
-  draw();
-  requestAnimationFrame(loop);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawWorld();
+  drawPlayer();
+  requestAnimationFrame(gameLoop);
 }
 
-function gameOver() {
-  playing = false;
-  setTimeout(() => {
-    canvas.style.display = 'none';
-    drawMenu();
-    document.getElementById('menu').style.display = 'flex';
-  }, 800);
-}
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const c = Math.floor(mx / tileSize);
+  const r = Math.floor(my / tileSize);
 
-function victory() {
-  playing = false;
-  if (progress < level + 2) {
-    progress = level + 2;
-    localStorage.setItem('gd-boss-progress', progress);
+  if(e.button === 0) {
+    // ЛКМ - ставити блок
+    if(!isSolid(r, c)) {
+      world[r][c] = inventory[selectedSlot];
+    }
+  } else if(e.button === 2) {
+    // ПКМ - знищити блок
+    if(isSolid(r,c)) {
+      world[r][c] = AIR;
+    }
   }
-  setTimeout(() => {
-    canvas.style.display = 'none';
-    drawMenu();
-    document.getElementById('menu').style.display = 'flex';
-  }, 800);
-}
+});
 
-drawMenu();
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+gameLoop();
 </script>
-
 </body>
 </html>
