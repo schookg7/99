@@ -2,109 +2,88 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Minecraft Walk</title>
+  <title>Simple Minecraft Walk</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    #instructions {
+    #info {
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.8);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      top: 10px; left: 10px;
       color: white;
-      font-size: 24px;
       font-family: sans-serif;
-      cursor: pointer;
+      background: rgba(0,0,0,0.5);
+      padding: 5px 10px;
+      border-radius: 5px;
       z-index: 10;
     }
   </style>
 </head>
 <body>
-<div id="instructions">Натисніть, щоб почати</div>
+<div id="info">WASD — ходити | Стрілки ←↑→↓ — дивитись</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/PointerLockControls.js"></script>
 
 <script>
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  const controls = new THREE.PointerLockControls(camera, document.body);
-  const instructions = document.getElementById('instructions');
-
-  instructions.addEventListener('click', () => {
-    controls.lock();
-  });
-
-  controls.addEventListener('lock', () => {
-    instructions.style.display = 'none';
-  });
-
-  controls.addEventListener('unlock', () => {
-    instructions.style.display = '';
-  });
-
-  scene.add(controls.getObject());
-
-  // Освітлення
   const light = new THREE.HemisphereLight(0xffffff, 0x444444);
   scene.add(light);
 
-  // Створення землі
   const material = new THREE.MeshLambertMaterial({ color: 0x55cc55 });
-  for (let x = -10; x <= 10; x++) {
-    for (let z = -10; z <= 10; z++) {
-      const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
+  for(let x = -10; x <= 10; x++) {
+    for(let z = -10; z <= 10; z++) {
+      const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), material);
       cube.position.set(x, -1, z);
       scene.add(cube);
     }
   }
 
-  // Камера та гравітація
-  const velocity = new THREE.Vector3();
-  const direction = new THREE.Vector3();
+  camera.position.set(0, 2, 5);
+  let yaw = 0;   // Поворот вліво-вправо
+  let pitch = 0; // Поворот вверх-вниз
+
   const keys = {};
-
-  let canJump = false;
-
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup', e => keys[e.code] = false);
 
-  const clock = new THREE.Clock();
+  const velocity = new THREE.Vector3();
 
   function animate() {
     requestAnimationFrame(animate);
-    const delta = clock.getDelta();
 
-    velocity.x -= velocity.x * 10 * delta;
-    velocity.z -= velocity.z * 10 * delta;
-    velocity.y -= 9.8 * 5 * delta; // гравітація
-
-    direction.z = Number(keys['KeyW']) - Number(keys['KeyS']);
-    direction.x = Number(keys['KeyD']) - Number(keys['KeyA']);
-    direction.normalize();
-
-    if (keys['KeyW'] || keys['KeyS']) velocity.z -= direction.z * 400.0 * delta;
-    if (keys['KeyA'] || keys['KeyD']) velocity.x -= direction.x * 400.0 * delta;
-
-    if (canJump && keys['Space']) {
-      velocity.y = 5;
-      canJump = false;
+    // Рух камери WASD (відносно напрямку)
+    const speed = 0.1;
+    if(keys['KeyW']) {
+      camera.position.x -= Math.sin(yaw) * speed;
+      camera.position.z -= Math.cos(yaw) * speed;
+    }
+    if(keys['KeyS']) {
+      camera.position.x += Math.sin(yaw) * speed;
+      camera.position.z += Math.cos(yaw) * speed;
+    }
+    if(keys['KeyA']) {
+      camera.position.x -= Math.cos(yaw) * speed;
+      camera.position.z += Math.sin(yaw) * speed;
+    }
+    if(keys['KeyD']) {
+      camera.position.x += Math.cos(yaw) * speed;
+      camera.position.z -= Math.sin(yaw) * speed;
     }
 
-    controls.moveRight(-velocity.x * delta);
-    controls.moveForward(-velocity.z * delta);
-    controls.getObject().position.y += velocity.y * delta;
+    // Повороти камери стрілками
+    const turnSpeed = 0.02;
+    if(keys['ArrowLeft']) yaw += turnSpeed;
+    if(keys['ArrowRight']) yaw -= turnSpeed;
+    if(keys['ArrowUp']) pitch += turnSpeed;
+    if(keys['ArrowDown']) pitch -= turnSpeed;
 
-    if (controls.getObject().position.y < 1) {
-      velocity.y = 0;
-      controls.getObject().position.y = 1;
-      canJump = true;
-    }
+    // Обмежуємо pitch щоб не крутити голову назад
+    pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
+
+    camera.rotation.set(pitch, yaw, 0);
 
     renderer.render(scene, camera);
   }
@@ -112,7 +91,7 @@
   animate();
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
