@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<title>Гра з рівнями і боєм</title>
+<title>Гра з 50 рівнями</title>
 <style>
   body { margin:0; overflow:hidden; background: #333; font-family: monospace; }
   canvas { display:block; margin: 0 auto; background: #87ceeb; }
@@ -69,36 +69,32 @@ function collideRect(a,b) {
 }
 
 const enemies = [];
-function spawnEnemy(x,y) {
+function spawnEnemy(x,y,speed=1) {
   enemies.push({
-    x, y, w: 30, h: 35, vx: 1, hp: 20, attackCooldown: 0
+    x, y, w: 30, h: 35, vx: speed, hp: 20, attackCooldown: 0
+  });
+}
+
+const levels = [];
+for(let i=0; i<50; i++) {
+  let enemyCount = Math.min(1 + Math.floor(i / 3), 15); // до 15 ворогів
+  let enemiesArr = [];
+  for(let j=0; j<enemyCount; j++) {
+    enemiesArr.push({x: 300 + j*40, y: (rows-3)*tileSize, speed: 1 + i*0.05});
+  }
+  levels.push({
+    enemies: enemiesArr,
+    portalX: 750,
+    portalY: (rows-3)*tileSize - 35,
   });
 }
 
 let currentLevel = 0;
 
-const levels = [
-  {
-    enemies: [{x: 400, y: (rows-3)*tileSize}],
-    portalX: 750,
-    portalY: (rows-3)*tileSize - 35,
-  },
-  {
-    enemies: [{x: 300, y: (rows-3)*tileSize}, {x: 600, y: (rows-3)*tileSize}],
-    portalX: 750,
-    portalY: (rows-3)*tileSize - 35,
-  },
-  {
-    enemies: [{x: 350, y: (rows-3)*tileSize}, {x: 500, y: (rows-3)*tileSize}, {x: 650, y: (rows-3)*tileSize}],
-    portalX: 750,
-    portalY: (rows-3)*tileSize - 35,
-  }
-];
-
 function loadLevel(levelNum) {
   enemies.length = 0;
   const lvl = levels[levelNum];
-  lvl.enemies.forEach(e => spawnEnemy(e.x, e.y));
+  lvl.enemies.forEach(e => spawnEnemy(e.x, e.y, e.speed));
   player.x = tileSize * 2;
   player.y = (rows - 3) * tileSize;
   player.hp = 100;
@@ -248,7 +244,7 @@ function checkPortal() {
   if(enemies.length === 0 && collideRect(playerRect, portalRect)) {
     currentLevel++;
     if(currentLevel >= levels.length) {
-      alert('Ви пройшли всі рівні! Вітаю!');
+      alert('Вітаю! Ви пройшли всі 50 рівнів!');
       currentLevel = 0;
     }
     loadLevel(currentLevel);
