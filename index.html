@@ -1,324 +1,54 @@
-<!DOCTYPE html>
-<html lang="uk">
+<!DOCTYPE html><html lang="uk">
 <head>
-  <meta charset="UTF-8" />
-  <title>3D гра для телефону з інвентарем</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geometry Dash Mobile</title>
   <style>
-    body, html {
-      margin: 0; padding: 0; overflow: hidden;
-      font-family: sans-serif;
-      touch-action: none; /* Вимикаємо скролл при торканні */
-      -webkit-user-select:none;
-      -moz-user-select:none;
-      -ms-user-select:none;
-      user-select:none;
-    }
-    #info {
-      position: absolute; top: 10px; left: 10px;
-      background: rgba(0,0,0,0.5);
-      color: white; padding: 5px 10px;
-      z-index: 10;
-      font-size: 14px;
-      max-width: 300px;
-      user-select: none;
-    }
-    #inventory {
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    canvas { display: block; background: linear-gradient(#87CEEB, #ffffff); }
+    #skinSelector {
       position: absolute;
-      bottom: 10px; left: 50%;
+      bottom: 10px;
+      left: 50%;
       transform: translateX(-50%);
       display: flex;
       gap: 10px;
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 8px;
-      z-index: 10;
-      user-select: none;
+      z-index: 2;
     }
-    .slot {
+    .skin {
       width: 40px; height: 40px;
-      border: 2px solid #555;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
       border-radius: 4px;
-      touch-action: manipulation;
+      border: 2px solid transparent;
     }
-    .slot.selected {
-      border-color: yellow;
-    }
-    .color-block {
-      width: 30px; height: 30px;
-      border-radius: 2px;
-    }
-    #joystick {
-      position: absolute;
-      bottom: 80px;
-      left: 20px;
-      width: 120px;
-      height: 120px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50%;
-      touch-action: none;
-      user-select:none;
-      z-index: 10;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    #joystick-inner {
-      width: 60px;
-      height: 60px;
-      background: rgba(255,255,255,0.3);
-      border-radius: 50%;
-      position: relative;
-      touch-action: none;
+    .selected {
+      border-color: black;
     }
   </style>
 </head>
 <body>
-<div id="info">
-  Ліворуч: джойстик для руху<br/>
-  Праворуч: свайп — поворот камери<br/>
-  Тап — видалити блок<br/>
-  Довгий тап — додати вибраний блок<br/>
-  Внизу: вибір блоку
-</div>
+<canvas id="gameCanvas"></canvas>
+<div id="skinSelector">
+  <div class="skin selected" style="background:red" data-color="red"></div>
+  <div class="skin" style="background:blue" data-color="blue"></div>
+  <div class="skin" style="background:green" data-color="green"></div>
+</div><script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-<div id="inventory"></div>
+// Player
+let player = {
+  x: 50,
+  y: canvas.height - 150,
+  width: 30,
+  height: 30,
+  color: "red",
+  dy: 0,
+  gravity: 0.8,
+  jumpForce: -15,
+  grounded: false
+};
 
-<div id="joystick">
-  <div id="joystick-inner"></div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-
-<script>
-  // THREE.JS базова сцена
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
-  scene.add(light);
-
-  // Блоки
-  const blockTypes = [
-    { name: "Зелений", color: 0x00aa00 },
-    { name: "Червоний", color: 0xaa0000 },
-    { name: "Синій", color: 0x0000aa },
-    { name: "Жовтий", color: 0xaaaa00 },
-  ];
-  const blockMaterials = blockTypes.map(b => new THREE.MeshLambertMaterial({color: b.color}));
-  const blocks = new Map();
-
-  function addBlock(x,y,z, typeIndex=0) {
-    const geometry = new THREE.BoxGeometry(1,1,1);
-    const mesh = new THREE.Mesh(geometry, blockMaterials[typeIndex]);
-    mesh.position.set(x,y,z);
-    mesh.userData.type = typeIndex;
-    scene.add(mesh);
-    blocks.set(`${x},${y},${z}`, mesh);
-  }
-  for(let x=-10; x<=10; x++) {
-    for(let z=-10; z<=10; z++) {
-      addBlock(x,-1,z, 0);
-    }
-  }
-
-  // Підсвітка для вибраного блоку
-  const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
-  const highlightBox = new THREE.Mesh(new THREE.BoxGeometry(1.1,1.1,1.1), highlightMaterial);
-  scene.add(highlightBox);
-  highlightBox.visible = false;
-
-  // Камера
-  camera.position.set(0,1.5,5);
-
-  // Вхідні дані
-  let yaw = 0;
-  let pitch = 0;
-
-  // Джойстик руху
-  const joystick = document.getElementById('joystick');
-  const joystickInner = document.getElementById('joystick-inner');
-
-  let joystickActive = false;
-  let joystickStart = {x:0,y:0};
-  let joystickPos = {x:0,y:0};
-  let moveVector = {x:0, y:0};
-
-  joystick.addEventListener('touchstart', e => {
-    e.preventDefault();
-    joystickActive = true;
-    joystickStart.x = e.touches[0].clientX;
-    joystickStart.y = e.touches[0].clientY;
-    joystickPos.x = 0;
-    joystickPos.y = 0;
-    updateJoystickVisual();
-  });
-
-  joystick.addEventListener('touchmove', e => {
-    e.preventDefault();
-    if(!joystickActive) return;
-    const touch = e.touches[0];
-    let dx = touch.clientX - joystickStart.x;
-    let dy = touch.clientY - joystickStart.y;
-
-    // Обмежуємо радіус джойстика до 40px
-    const maxRadius = 40;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if(dist > maxRadius) {
-      const angle = Math.atan2(dy, dx);
-      dx = Math.cos(angle)*maxRadius;
-      dy = Math.sin(angle)*maxRadius;
-    }
-
-    joystickPos.x = dx;
-    joystickPos.y = dy;
-
-    // Нормалізуємо рух в діапазон [-1,1]
-    moveVector.x = dx / maxRadius;
-    moveVector.y = dy / maxRadius;
-
-    updateJoystickVisual();
-  });
-
-  joystick.addEventListener('touchend', e => {
-    e.preventDefault();
-    joystickActive = false;
-    moveVector.x = 0;
-    moveVector.y = 0;
-    joystickPos.x = 0;
-    joystickPos.y = 0;
-    updateJoystickVisual();
-  });
-
-  function updateJoystickVisual() {
-    joystickInner.style.transform = `translate(${joystickPos.x}px, ${joystickPos.y}px)`;
-  }
-
-  // Сенсор для повороту камери (справа)
-  let pointerId = null;
-  let lastTouch = null;
-  let isRotating = false;
-
-  window.addEventListener('touchstart', e => {
-    for(let touch of e.changedTouches) {
-      if(touch.clientX > window.innerWidth/2 && pointerId === null) {
-        pointerId = touch.identifier;
-        lastTouch = {x: touch.clientX, y: touch.clientY};
-        isRotating = false;
-      }
-    }
-  });
-
-  window.addEventListener('touchmove', e => {
-    if(pointerId === null) return;
-    for(let touch of e.changedTouches) {
-      if(touch.identifier === pointerId) {
-        const dx = touch.clientX - lastTouch.x;
-        const dy = touch.clientY - lastTouch.y;
-        lastTouch = {x: touch.clientX, y: touch.clientY};
-
-        if(Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-          isRotating = true;
-          yaw -= dx * 0.005;
-          pitch -= dy * 0.005;
-          pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
-        }
-      }
-    }
-  });
-
-  window.addEventListener('touchend', e => {
-    for(let touch of e.changedTouches) {
-      if(touch.identifier === pointerId) {
-        pointerId = null;
-        isRotating = false;
-      }
-    }
-  });
-
-  // Рейкаст для блоків
-  const raycaster = new THREE.Raycaster();
-
-  function getBlockAtPosition(pos) {
-    return blocks.get(`${pos.x},${pos.y},${pos.z}`);
-  }
-
-  function removeBlockAtPosition(pos) {
-    const key = `${pos.x},${pos.y},${pos.z}`;
-    const block = blocks.get(key);
-    if(block) {
-      scene.remove(block);
-      blocks.delete(key);
-    }
-  }
-
-  function addBlockNear(position, normal) {
-    const newPos = {
-      x: Math.round(position.x + normal.x),
-      y: Math.round(position.y + normal.y),
-      z: Math.round(position.z + normal.z)
-    };
-    if(!blocks.has(`${newPos.x},${newPos.y},${newPos.z}`)) {
-      addBlock(newPos.x, newPos.y, newPos.z, selectedBlockType);
-    }
-  }
-
-  // Підсвітка
-  let highlightNormal = new THREE.Vector3();
-
-  function updateHighlight() {
-    raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
-    const intersects = raycaster.intersectObjects(Array.from(blocks.values()));
-    if(intersects.length > 0) {
-      const intersect = intersects[0];
-      const pos = intersect.object.position;
-      highlightBox.position.copy(pos);
-      highlightBox.visible = true;
-      highlightNormal.copy(intersect.face.normal);
-    } else {
-      highlightBox.visible = false;
-    }
-  }
-
-  // Інвентар
-  const inventory = document.getElementById('inventory');
-  let selectedBlockType = 0;
-
-  function createInventory() {
-    blockTypes.forEach((block, i) => {
-      const slot = document.createElement('div');
-      slot.className = 'slot' + (i === selectedBlockType ? ' selected' : '');
-      slot.title = block.name;
-
-      const colorBlock = document.createElement('div');
-      colorBlock.className = 'color-block';
-      colorBlock.style.backgroundColor = '#' + block.color.toString(16).padStart(6,'0');
-      slot.appendChild(colorBlock);
-
-      slot.addEventListener('touchstart', e => {
-        e.preventDefault();
-        selectBlockType(i);
-      });
-
-      inventory.appendChild(slot);
-    });
-  }
-  function selectBlockType(i) {
-    selectedBlockType = i;
-    Array.from(inventory.children).forEach((slot, idx) => {
-      slot.classList.toggle('selected', idx === i);
-    });
-  }
-  createInventory();
-
-  // Обробка тапів справа для ЛКМ і ПКМ
-  let tapTimeout = null;
-  let tapStartTime = 0;
+// Skin selector
+let skins = document.querySelectorAll(".skin
