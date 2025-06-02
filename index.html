@@ -2,88 +2,193 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Simple Minecraft Walk</title>
+  <title>Кубічна 3D гра з ходьбою та кліками</title>
   <style>
     body { margin: 0; overflow: hidden; }
     #info {
-      position: absolute;
-      top: 10px; left: 10px;
-      color: white;
-      font-family: sans-serif;
+      position: absolute; top: 10px; left: 10px;
       background: rgba(0,0,0,0.5);
-      padding: 5px 10px;
-      border-radius: 5px;
+      color: white; padding: 5px 10px;
+      font-family: sans-serif;
       z-index: 10;
+      user-select: none;
     }
+    canvas { display: block; }
   </style>
 </head>
 <body>
-<div id="info">WASD — ходити | Стрілки ←↑→↓ — дивитись</div>
+<div id="info">WASD - ходити | ЛКМ - видалити блок | ПКМ - додати блок | Затисни ЛКМ та рухай мишею - повертатись</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
 
 <script>
+  // Сцена, камера, рендерер
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer();
+  const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
+  // Світло
   const light = new THREE.HemisphereLight(0xffffff, 0x444444);
   scene.add(light);
 
-  const material = new THREE.MeshLambertMaterial({ color: 0x55cc55 });
-  for(let x = -10; x <= 10; x++) {
-    for(let z = -10; z <= 10; z++) {
-      const cube = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), material);
-      cube.position.set(x, -1, z);
-      scene.add(cube);
+  // Матеріали
+  const blockMaterial = new THREE.MeshLambertMaterial({ color: 0x00aa00 });
+  const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
+
+  // Карта блоків для позицій
+  const blocks = new Map();
+
+  // Створимо землю 20x1x20
+  function addBlock(x,y,z) {
+    const geometry = new THREE.BoxGeometry(1,1,1);
+    const mesh = new THREE.Mesh(geometry, blockMaterial);
+    mesh.position.set(x,y,z);
+    scene.add(mesh);
+    blocks.set(`${x},${y},${z}`, mesh);
+  }
+
+  for(let x=-10; x<=10; x++) {
+    for(let z=-10; z<=10; z++) {
+      addBlock(x,-1,z);
     }
   }
 
-  camera.position.set(0, 2, 5);
-  let yaw = 0;   // Поворот вліво-вправо
-  let pitch = 0; // Поворот вверх-вниз
+  // Підсвітка для вибраного блоку
+  const highlightBox = new THREE.Mesh(new THREE.BoxGeometry(1.1,1.1,1.1), highlightMaterial);
+  scene.add(highlightBox);
+  highlightBox.visible = false;
 
+  // Камера стартова позиція
+  camera.position.set(0,1.5,5);
+  camera.lookAt(0,0,0);
+
+  // Клавіші
   const keys = {};
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup', e => keys[e.code] = false);
 
+  // Рух миші з затисненням ЛКМ для повороту
+  let isRotating = false;
+  let prevMouse = {x:0, y:0};
+  let yaw = 0;
+  let pitch = 0;
+
+  window.addEventListener('mousedown', e => {
+    if(e.button === 0) { // ЛКМ
+      isRotating = true;
+      prevMouse.x = e.clientX;
+      prevMouse.y = e.clientY;
+    }
+  });
+  window.addEventListener('mouseup', e => {
+    if(e.button === 0) {
+      isRotating = false;
+    }
+  });
+  window.addEventListener('mousemove', e => {
+    if(isRotating) {
+      const movementX = e.clientX - prevMouse.x;
+      const movementY = e.clientY - prevMouse.y;
+      prevMouse.x = e.clientX;
+      prevMouse.y = e.clientY;
+
+      yaw -= movementX * 0.002;
+      pitch -= movementY * 0.002;
+
+      pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
+    }
+  });
+
+  // Управління ходьбою
   const velocity = new THREE.Vector3();
+
+  // Рейкаст для визначення блоку на який дивимось
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+
+  function getBlockAtPosition(pos) {
+    return blocks.get(`${pos.x},${pos.y},${pos.z}`);
+  }
+
+  function removeBlockAtPosition(pos) {
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    const block = blocks.get(key);
+    if(block) {
+      scene.remove(block);
+      blocks.delete(key);
+    }
+  }
+
+  function addBlockNear(position, normal) {
+    const newPos = {
+      x: Math.round(position.x + normal.x),
+      y: Math.round(position.y + normal.y),
+      z: Math.round(position.z + normal.z)
+    };
+    if(!blocks.has(`${newPos.x},${newPos.y},${newPos.z}`)) {
+      addBlock(newPos.x, newPos.y, newPos.z);
+    }
+  }
+
+  // Обробка кліків
+  window.addEventListener('contextmenu', e => e.preventDefault()); // Заборонити контекстне меню ПКМ
+
+  window.addEventListener('mousedown', e => {
+    if(e.button === 2) { // ПКМ - додати блок
+      if(highlightBox.visible) {
+        const pos = highlightBox.position;
+        // Додати блок біля позиції по нормалі
+        addBlockNear(pos, highlightNormal);
+      }
+    } else if(e.button === 0 && !isRotating) { // ЛКМ без обертання - видалити блок
+      if(highlightBox.visible) {
+        removeBlockAtPosition(highlightBox.position);
+      }
+    }
+  });
+
+  // Для підсвітки вибраного блоку
+  let highlightNormal = new THREE.Vector3();
+
+  function updateHighlight() {
+    raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+    const intersects = raycaster.intersectObjects(Array.from(blocks.values()));
+    if(intersects.length > 0) {
+      const intersect = intersects[0];
+      const pos = intersect.object.position;
+      highlightBox.position.copy(pos);
+      highlightBox.visible = true;
+      highlightNormal.copy(intersect.face.normal);
+    } else {
+      highlightBox.visible = false;
+    }
+  }
 
   function animate() {
     requestAnimationFrame(animate);
 
-    // Рух камери WASD (відносно напрямку)
-    const speed = 0.1;
-    if(keys['KeyW']) {
-      camera.position.x -= Math.sin(yaw) * speed;
-      camera.position.z -= Math.cos(yaw) * speed;
-    }
-    if(keys['KeyS']) {
-      camera.position.x += Math.sin(yaw) * speed;
-      camera.position.z += Math.cos(yaw) * speed;
-    }
-    if(keys['KeyA']) {
-      camera.position.x -= Math.cos(yaw) * speed;
-      camera.position.z += Math.sin(yaw) * speed;
-    }
-    if(keys['KeyD']) {
-      camera.position.x += Math.cos(yaw) * speed;
-      camera.position.z -= Math.sin(yaw) * speed;
-    }
+    // Рух
+    const speed = 0.05;
+    const dir = new THREE.Vector3();
+    if(keys['KeyW']) dir.z -= 1;
+    if(keys['KeyS']) dir.z += 1;
+    if(keys['KeyA']) dir.x -= 1;
+    if(keys['KeyD']) dir.x += 1;
+    dir.normalize();
 
-    // Повороти камери стрілками
-    const turnSpeed = 0.02;
-    if(keys['ArrowLeft']) yaw += turnSpeed;
-    if(keys['ArrowRight']) yaw -= turnSpeed;
-    if(keys['ArrowUp']) pitch += turnSpeed;
-    if(keys['ArrowDown']) pitch -= turnSpeed;
+    // Розрахунок напрямку руху від повороту камери
+    const moveX = dir.x * Math.cos(yaw) - dir.z * Math.sin(yaw);
+    const moveZ = dir.z * Math.cos(yaw) + dir.x * Math.sin(yaw);
 
-    // Обмежуємо pitch щоб не крутити голову назад
-    pitch = Math.min(Math.max(pitch, -Math.PI/2), Math.PI/2);
+    camera.position.x += moveX * speed;
+    camera.position.z += moveZ * speed;
 
+    // Повороти камери
     camera.rotation.set(pitch, yaw, 0);
+
+    updateHighlight();
 
     renderer.render(scene, camera);
   }
